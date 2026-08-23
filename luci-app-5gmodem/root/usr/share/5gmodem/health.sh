@@ -243,6 +243,9 @@ judge() {
 			else
 				_ev "link $_j_if is back"
 			fi
+			# ПЕРЕЗАГРУЗИТЬ FIREWALL ПРИ КАЖДОМ ОЖИВЛЕНИИ ЛИНКА (В Т.Ч. ПЕРВОМ).
+			#
+			[ -x /etc/init.d/firewall ] && /etc/init.d/firewall reload >/dev/null 2>&1 &
 		else
 			_ev "link $_j_if went down (missed $_j_f/$H_FAILN pings)"
 		fi
