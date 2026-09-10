@@ -120,6 +120,7 @@
 				"/bin/tar": [ "exec" ],
 				"/bin/mkdir": [ "exec" ],
 				"/etc/init.d/cron restart": [ "exec" ],
+				"/etc/init.d/firewall reload": [ "exec" ],
 				"/etc/modemdefine": [ "write" ],
 				"/etc/5gmodem": [ "write" ],
 				"/sys/class/leds/*/brightness": [ "write" ],

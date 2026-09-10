@@ -97,6 +97,13 @@ function pingInfo(host) {
 
 var SPEEDBIN = '/usr/share/5gmodem/speedtest.sh';
 
+/* Карточка «Перезапуск фаервола» - кнопка на панели, дёргает
+   /etc/init.d/firewall reload. Нужна из-за живого случая: если модем
+   инициализируется дольше обычного, интернет на роутере есть, а до клиентов
+   он не доходит, пока не перечитан фаервол - без этой кнопки лечится только
+   заходом по SSH. */
+var FWBIN = '/etc/init.d/firewall';
+
 /* Состояние карточки теста скорости - модульное, чтобы переживать перерисовку
    бара 5-секундным поллом. phase: idle|running|done|fail. */
 var _st = { phase: 'idle', service: '', down: null, up: null, ip: '', cc: '', live: 0, liveUp: 0, secs: 15, phaseStart: 0, hasData: false, elapsed: null, elapsedAt: 0 };
@@ -395,6 +402,65 @@ function stPoll(expectStart) {
 		});
 	};
 	return poll();
+}
+
+/* --- Карточка «Перезапуск фаервола» -------------------------------------
+   Простая кнопка без опроса: клик -> fs.exec(FWBIN, ['reload']) -> точка
+   красится по итогу (code===0 - зелёная, иначе красная), во время
+   выполнения карточка «дышит» тем же классом ping-busy, что и у карточек
+   пинга/сервисов. Состояние - модульная переменная (переживает перерисовку
+   бара поллингом), но НЕ сохраняется между перезагрузками страницы: старый
+   итог неактуален и только вводил бы в заблуждение. */
+var _fwState = null; /* null - ещё не жали; иначе {done:true, ok:bool} */
+var _fwBusy = false;
+function _fwDot() { return !_fwState ? 'unknown' : (_fwState.ok ? 'on' : 'off'); }
+function _fwTip() {
+	if (_fwBusy) { return _('Reloading the firewall…'); }
+	if (!_fwState) {
+		return _('Click to reload the firewall (/etc/init.d/firewall reload) - fixes internet not reaching clients after a slow modem init');
+	}
+	return _fwState.ok ? _('Firewall reloaded') : _('Firewall reload failed');
+}
+function _fwSub() {
+	if (_fwBusy) { return _('Reloading…'); }
+	if (!_fwState) { return _('Click to reload'); }
+	return _fwState.ok ? _('Done') : _('Error');
+}
+function fwCard() {
+	var dot = E('span', { 'class': 'netpri-svcdot ' + _fwDot(), 'title': _fwTip() });
+	var pic = E('span', { 'class': 'netpri-pingbadge custom' }, '🧯');
+	return E('button', {
+		'class': 'btn cbi-button netpri-btn netpri-status netpri-fw' + (_fwBusy ? ' ping-busy' : ''),
+		'data-wkey': 'fw',
+		'data-tooltip': _fwTip(),
+		'click': function(ev) { ev.preventDefault(); fwReload(); }
+	}, [
+		E('span', { 'class': 'netpri-sub' }, _('Firewall')),
+		E('span', { 'class': 'netpri-name' }, [ dot, pic, E('span', {}, _('Reload')) ]),
+		E('span', { 'class': 'netpri-ip' }, _fwSub())
+	]);
+}
+function updateFwCard() {
+	document.querySelectorAll('.netpri-fw').forEach(function(c) { c.classList.toggle('ping-busy', _fwBusy); });
+	document.querySelectorAll('.netpri-fw .netpri-svcdot').forEach(function(d) {
+		d.classList.remove('on', 'off', 'unknown'); d.classList.add(_fwDot()); d.title = _fwTip();
+	});
+	document.querySelectorAll('.netpri-fw').forEach(function(c) { c.setAttribute('data-tooltip', _fwTip()); });
+	document.querySelectorAll('.netpri-fw .netpri-ip').forEach(function(el) { el.textContent = _fwSub(); });
+}
+function fwReload() {
+	if (_fwBusy) { return Promise.resolve(); }
+	_fwBusy = true;
+	updateFwCard();
+	return fs.exec(FWBIN, [ 'reload' ]).then(function(res) {
+		_fwBusy = false;
+		_fwState = { done: true, ok: !(res && res.code) };
+		updateFwCard();
+	}).catch(function() {
+		_fwBusy = false;
+		_fwState = { done: true, ok: false };
+		updateFwCard();
+	});
 }
 
 /* подтянуть начальную подпись сервиса и последний результат (если был) */
@@ -1554,6 +1620,7 @@ function buildBar(list, redraw) {
 		});
 	}
 	if (_widgets.speedtest) { right.push(stCard()); }
+	right.push(fwCard());
 	/* ПОРЯДОК, ЗАДАННЫЙ ЧЕЛОВЕКОМ. Карточки, которых нет в сохранённом списке
 	   (только что добавленная в настройках, новая служба), уходят в КОНЕЦ и не
 	   ломают уже выстроенный ряд. */
